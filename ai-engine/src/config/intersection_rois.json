@@ -1,0 +1,139 @@
+{
+    "video": "traffic-video-6.mp4",
+    "resolution": {
+        "width": 768,
+        "height": 432
+    },
+    "approaches": [
+        {
+            "id": "bottom_left",
+            "name": "Bottom-left to top-center",
+            "polygon": [
+                [
+                    100,
+                    253
+                ],
+                [
+                    356,
+                    253
+                ],
+                [
+                    356,
+                    429
+                ],
+                [
+                    4,
+                    422
+                ],
+                [
+                    98,
+                    253
+                ]
+            ]
+        },
+        {
+            "id": "top_center",
+            "name": "Top-center to intersection",
+            "polygon": [
+                [
+                    280,
+                    125
+                ],
+                [
+                    533,
+                    120
+                ],
+                [
+                    483,
+                    9
+                ],
+                [
+                    315,
+                    5
+                ],
+                [
+                    281,
+                    125
+                ]
+            ]
+        },
+        {
+            "id": "left_side",
+            "name": "Left-to-right cross traffic",
+            "polygon": [
+                [
+                    559,
+                    151
+                ],
+                [
+                    609,
+                    245
+                ],
+                [
+                    764,
+                    232
+                ],
+                [
+                    750,
+                    143
+                ],
+                [
+                    560,
+                    150
+                ]
+            ]
+        },
+        {
+            "id": "right_side",
+            "name": "Right-to-left cross traffic",
+            "polygon": [
+                [
+                    91,
+                    169
+                ],
+                [
+                    72,
+                    220
+                ],
+                [
+                    3,
+                    217
+                ],
+                [
+                    8,
+                    159
+                ],
+                [
+                    92,
+                    171
+                ]
+            ]
+        },
+        {
+            "id": "bottom_right_slip",
+            "name": "Bottom-right curved slip road",
+            "polygon": [
+                [
+                    583,
+                    260
+                ],
+                [
+                    510,
+                    311
+                ],
+                [
+                    760,
+                    331
+                ],
+                [
+                    761,
+                    281
+                ],
+                [
+                    584,
+                    261
+                ]
+            ]
+        }
+    ]
+}

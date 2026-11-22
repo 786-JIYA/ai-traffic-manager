@@ -1,0 +1,23 @@
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Node.js
+node_modules/
+
+# Generated files
+*.log
+.DS_Store
+
+# AI model weights
+ai-engine/*.pt
+
+# Test videos
+ai-engine/videos/test/*.webm
