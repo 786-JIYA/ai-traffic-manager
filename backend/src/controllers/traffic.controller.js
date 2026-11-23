@@ -1,5 +1,6 @@
 
 const pool = require("../config/db");
+const { getIO } = require("../config/socket");
 
 const receiveTrafficData = async (req, res) => {
     const { intersection_id, timestamp, approaches } = req.body;
@@ -77,6 +78,14 @@ const receiveTrafficData = async (req, res) => {
         }
 
         await client.query("COMMIT");
+
+        const io = getIO();
+
+        io.emit("traffic:update", {
+            intersection_id,
+            timestamp,
+            approaches
+        });
 
         return res.status(201).json({
             success: true,
@@ -200,8 +209,56 @@ const getTrafficHistory = async (req, res) => {
     }
 };
 
+const getLatestTraffic = async (req, res) => {
+    const { intersection_id } = req.query;
+
+    if (!intersection_id || typeof intersection_id !== "string") {
+        return res.status(400).json({
+            success: false,
+            message: "intersection_id is required"
+        });
+    }
+
+    try {
+        const result = await pool.query(
+            `SELECT DISTINCT ON (a.approach_key)
+                a.approach_key AS approach,
+                ts.total_vehicles,
+                ts.waiting_vehicles,
+                ts.moving_vehicles,
+                ts.arrival_rate,
+                ts.congestion_level,
+                ts.observed_at
+            FROM traffic_snapshots ts
+            JOIN approaches a
+                ON ts.approach_id = a.id
+            JOIN intersections i
+                ON a.intersection_id = i.id
+            WHERE i.intersection_key = $1
+            ORDER BY a.approach_key, ts.observed_at DESC`,
+            [intersection_id]
+        );
+
+        return res.status(200).json({
+            success: true,
+            intersection_id,
+            count: result.rows.length,
+            data: result.rows
+        });
+
+    } catch (error) {
+        console.error("Latest traffic retrieval error:", error.message);
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to retrieve latest traffic data"
+        });
+    }
+};
+
 
 module.exports = {
     receiveTrafficData,
-    getTrafficHistory
+    getTrafficHistory,
+    getLatestTraffic
 };

@@ -3,7 +3,8 @@ const express = require("express");
 
 const {
     receiveTrafficData,
-    getTrafficHistory
+    getTrafficHistory,
+    getLatestTraffic
 } = require("../controllers/traffic.controller");
 
 const validateTraffic = require("../middleware/validateTraffic");
@@ -22,5 +23,7 @@ router.get(
     "/history",
     getTrafficHistory
 );
+
+router.get("/latest", getLatestTraffic);
 
 module.exports = router;

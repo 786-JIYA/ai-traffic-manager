@@ -1,16 +1,22 @@
 
 import time
+from datetime import datetime, timezone
 
 
 class SignalPhaseManager:
 
     def __init__(
         self,
+        backend_client=None,
+        intersection_id="intersection_01",
         yellow_time=3,
         all_red_time=2,
         min_green=10,
         max_green=60
     ):
+        self.backend_client = backend_client
+        self.intersection_id = intersection_id
+
         self.yellow_time = yellow_time
         self.all_red_time = all_red_time
         self.min_green = min_green
@@ -28,6 +34,33 @@ class SignalPhaseManager:
             "right_side",
             "bottom_right_slip",
         ]
+
+    def report_state(self):
+        if self.backend_client is None:
+            return
+
+        payload = {
+            "intersection_id": self.intersection_id,
+            "active_phase": self.current_phase,
+            "state": self.current_state,
+            "green_duration": self.green_duration,
+            "elapsed_seconds": round(self.elapsed_time(), 2),
+            "observed_at": datetime.now(timezone.utc).isoformat(),
+            "simulation_mode": True
+        }
+
+        response = self.backend_client.send_signal_state(payload)
+
+        if response:
+            print(
+                f"Signal state reported successfully: "
+                f"{self.current_state}"
+            )
+        else:
+            print(
+                f"Failed to report signal state: "
+                f"{self.current_state}"
+            )
 
     def start_green(self, phase, duration):
         if phase not in self.allowed_phases:
@@ -47,6 +80,8 @@ class SignalPhaseManager:
         self.green_duration = duration
         self.state_started_at = time.monotonic()
 
+        self.report_state()
+
         return self.get_status()
 
     def start_yellow(self):
@@ -58,6 +93,8 @@ class SignalPhaseManager:
 
         self.current_state = "YELLOW"
         self.state_started_at = time.monotonic()
+
+        self.report_state()
 
         return self.get_status()
 
@@ -72,6 +109,8 @@ class SignalPhaseManager:
         self.current_phase = None
         self.green_duration = None
         self.state_started_at = time.monotonic()
+
+        self.report_state()
 
         return self.get_status()
 

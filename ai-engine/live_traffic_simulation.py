@@ -7,6 +7,13 @@ from datetime import datetime, timezone
 from src.analytics.traffic_analyzer import TrafficAnalyzer
 from src.analytics.traffic_decision_engine import TrafficDecisionEngine
 from src.communication.backend_client import BackendClient
+from src.analytics.signal_phase_manager import SignalPhaseManager
+
+# Video streaming imports
+from src.communication.video_stream import (
+    publish_frames,
+    start_video_stream_server
+)
 
 
 VIDEO_PATH = (
@@ -66,6 +73,11 @@ def main():
     decision_engine = TrafficDecisionEngine()
     backend_client = BackendClient()
 
+    signal_manager = SignalPhaseManager(
+        backend_client=backend_client,
+        intersection_id=INTERSECTION_ID
+    )
+
     cap = cv2.VideoCapture(VIDEO_PATH)
 
     if not cap.isOpened():
@@ -73,8 +85,19 @@ def main():
             "Could not open traffic video."
         )
 
+    # Start the video streaming server.
+    start_video_stream_server()
+
+    # Report the initial simulated ALL_RED state.
+    signal_manager.report_state()
+
+    print("Initial signal state: ALL_RED")
+
     print("BISMILLAH - LIVE TRAFFIC DECISION SIMULATION")
     print("Connecting Python AI Engine to Node.js Backend...")
+    print("Original video stream: http://localhost:8000/video/original")
+    print("AI processed stream: http://localhost:8000/video/processed")
+    print("Video health: http://localhost:8000/video/health")
 
     last_sent_time = 0.0
 
@@ -86,6 +109,10 @@ def main():
 
             if not success:
                 break
+
+            # Preserve the original frame before AI processing
+            # and drawing analytics overlays.
+            original_frame = frame.copy()
 
             # 1. Analyze actual video frame
             statistics = analyzer.analyze(frame)
@@ -200,6 +227,15 @@ def main():
                     2,
                 )
 
+            # 7. Publish both frames to FastAPI.
+            # Original frame has no AI overlays.
+            # Processed frame contains AI annotations.
+            publish_frames(
+                original_frame,
+                frame
+            )
+
+            # 8. Display the processed frame locally.
             cv2.imshow("AI Traffic Manager", frame)
 
             if cv2.waitKey(1) & 0xFF == ord("q"):

@@ -1,0 +1,44 @@
+
+import { io } from "socket.io-client";
+
+const SOCKET_URL =
+    import.meta.env.VITE_SOCKET_URL || "http://localhost:5000";
+
+const socket = io(SOCKET_URL, {
+    autoConnect: false,
+    reconnection: true,
+    reconnectionAttempts: 5,
+    reconnectionDelay: 1000,
+});
+
+export const connectSocket = () => {
+    if (!socket.connected) {
+        socket.connect();
+    }
+};
+
+export const disconnectSocket = () => {
+    if (socket.connected) {
+        socket.disconnect();
+    }
+};
+
+export const subscribeToTrafficUpdates = (callback) => {
+    socket.on("traffic:update", callback);
+
+    return () => {
+        socket.off("traffic:update", callback);
+    };
+};
+
+export const subscribeToConnection = (onConnect, onDisconnect) => {
+    socket.on("connect", onConnect);
+    socket.on("disconnect", onDisconnect);
+
+    return () => {
+        socket.off("connect", onConnect);
+        socket.off("disconnect", onDisconnect);
+    };
+};
+
+export default socket;
