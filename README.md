@@ -583,16 +583,7 @@ Check:
 
 ## 13. Deployment
 
-The deployment goal is to make the AI Traffic Manager publicly accessible with the actual YOLO-processed recorded traffic video.
-
-### Planned free deployment architecture
-
-| Component | Deployment approach |
-|---|---|
-| React frontend | Vercel |
-| Processed traffic video | Suitable free static or video hosting |
-| Backend | Free-tier Node.js hosting, subject to service limitations |
-| Database | Neon PostgreSQL free tier |
+yet to do ....
 
 ### Public demo approach
 
