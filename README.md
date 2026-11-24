@@ -66,6 +66,13 @@ The system is designed to:
                     3D Visualizations
 ```
 
+<img width="1920" height="920" alt="Screenshot (330)" src="https://github.com/user-attachments/assets/3fc3ec04-442d-4027-a791-9c87740bba6e" />
+<img width="1920" height="907" alt="Screenshot (331)" src="https://github.com/user-attachments/assets/b94e74b6-d13b-4184-ab4d-9bdd6cad1920" />
+<img width="1551" height="899" alt="Screenshot (332)" src="https://github.com/user-attachments/assets/41e9f87a-bee7-457f-8a27-fb2d572e924f" />
+<img width="1920" height="920" alt="Screenshot (333)" src="https://github.com/user-attachments/assets/b14eafbe-ed2d-4e2f-acbf-284fbae47fcc" />
+
+
+
 ### Main components
 
 | Component | Technology | Responsibility |
