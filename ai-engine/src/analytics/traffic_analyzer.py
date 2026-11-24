@@ -2,8 +2,6 @@
 import json
 import time
 
-from pathlib import Path
-
 import cv2
 import numpy as np
 
@@ -19,7 +17,7 @@ class TrafficAnalyzer:
         roi_path="src/config/intersection_rois.json",
         stationary_threshold=2.0,
         stationary_frames=8,
-    ):
+        track_timeout_seconds=5.0,):
         with open(roi_path, "r", encoding="utf-8") as file:
             config = json.load(file)
 
@@ -30,22 +28,27 @@ class TrafficAnalyzer:
 
         self.stationary_threshold = stationary_threshold
         self.stationary_frames = stationary_frames
+        self.track_timeout_seconds = track_timeout_seconds
+
+        self.first_frame = True
 
         self.vehicle_history = {}
 
-        # Arrival-rate tracking
         self.arrival_tracker = ArrivalRateTracker(
-            window_seconds=60
+            window_seconds=60,
+            track_timeout_seconds=track_timeout_seconds,
         )
 
         self.last_arrival_rates = {}
+
+        self.last_timestamp = None
 
     def get_center(self, bbox):
         x1, y1, x2, y2 = bbox
 
         return (
             (x1 + x2) / 2,
-            (y1 + y2) / 2
+            (y1 + y2) / 2,
         )
 
     def get_approach(self, center):
@@ -68,17 +71,26 @@ class TrafficAnalyzer:
 
         return None
 
-    def update_vehicle_state(self, vehicle):
+    def update_vehicle_state(
+        self,
+        vehicle,
+        approach_id,
+        timestamp,
+    ):
         track_id = vehicle["track_id"]
+
+        # Keep separate movement history for each approach.
+        history_key = (approach_id, track_id)
 
         center = self.get_center(vehicle["bbox"])
 
-        previous = self.vehicle_history.get(track_id)
+        previous = self.vehicle_history.get(history_key)
 
         if previous is None:
-            self.vehicle_history[track_id] = {
+            self.vehicle_history[history_key] = {
                 "center": center,
                 "stationary_count": 0,
+                "last_seen": timestamp,
             }
 
             return "moving"
@@ -96,18 +108,50 @@ class TrafficAnalyzer:
             previous["stationary_count"] = 0
 
         previous["center"] = center
+        previous["last_seen"] = timestamp
 
         if previous["stationary_count"] >= self.stationary_frames:
             return "waiting"
 
         return "moving"
 
-    def analyze(self, frame):
+    def cleanup_vehicle_history(self, current_time):
 
-        # Current video-processing timestamp
-        timestamp = time.monotonic()
+        expired_tracks = [
+            key
+            for key, history in self.vehicle_history.items()
+            if current_time - history["last_seen"]
+            > self.track_timeout_seconds
+        ]
 
-        # Detect and track vehicles
+        for key in expired_tracks:
+            del self.vehicle_history[key]
+
+    def analyze(self, frame, video_timestamp=None):
+        """
+        Analyze one video frame.
+
+        video_timestamp:
+            Timestamp in seconds from the recorded video.
+
+            If omitted, monotonic computer time is used.
+            For recorded-video simulation, always provide
+            the video timestamp.
+        """
+
+        if video_timestamp is None:
+            timestamp = time.monotonic()
+        else:
+            timestamp = float(video_timestamp)
+
+        if self.last_timestamp is not None:
+            if timestamp < self.last_timestamp:
+                raise ValueError(
+                    "Video timestamp cannot move backwards."
+                )
+
+        self.last_timestamp = timestamp
+
         vehicles = self.tracker.update(frame)
 
         statistics = {
@@ -128,21 +172,34 @@ class TrafficAnalyzer:
             if approach_id is None:
                 continue
 
-            # Record first observation of this track
-            # inside its monitored approach.
-            self.arrival_tracker.record_arrival(
-                approach_id,
-                vehicle["track_id"],
-                timestamp
-            )
+            if self.first_frame:
+                self.arrival_tracker.initialize_track(
+                    approach_id,
+                    vehicle["track_id"],
+                    timestamp,
+                )
+            else:
+                self.arrival_tracker.record_arrival(
+                    approach_id,
+                    vehicle["track_id"],
+                    timestamp,
+                )
 
-            # Classify vehicle movement state
-            state = self.update_vehicle_state(vehicle)
+            state = self.update_vehicle_state(
+                vehicle,
+                approach_id,
+                timestamp,
+            )
 
             statistics[approach_id]["total"] += 1
             statistics[approach_id][state] += 1
 
-        # Calculate rolling arrival rates
+        self.first_frame = False
+
+        # Remove stale vehicle movement histories.
+        self.cleanup_vehicle_history(timestamp)
+
+        # Calculate rolling arrival rates using the same time basis.
         rates = self.arrival_tracker.calculate(timestamp)
 
         self.last_arrival_rates = {

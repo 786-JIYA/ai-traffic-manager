@@ -1,7 +1,6 @@
-
 import { useEffect, useState } from "react";
 
-import {
+import socket, {
     connectSocket,
     disconnectSocket,
     subscribeToTrafficUpdates,
@@ -11,7 +10,7 @@ import {
 const useTrafficUpdates = (intersectionId = "intersection_01") => {
     const [trafficData, setTrafficData] = useState(null);
     const [lastUpdated, setLastUpdated] = useState(null);
-    const [isConnected, setIsConnected] = useState(false);
+    const [isConnected, setIsConnected] = useState(socket.connected);
 
     useEffect(() => {
         const unsubscribeTraffic = subscribeToTrafficUpdates((data) => {
@@ -29,6 +28,7 @@ const useTrafficUpdates = (intersectionId = "intersection_01") => {
         );
 
         connectSocket();
+        setIsConnected(socket.connected);
 
         return () => {
             unsubscribeTraffic();

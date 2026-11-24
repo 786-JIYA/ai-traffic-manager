@@ -5,6 +5,7 @@ import time
 from datetime import datetime, timezone
 
 from src.analytics.traffic_analyzer import TrafficAnalyzer
+from src.analytics.traffic_statistics import TrafficStatistics
 from src.analytics.traffic_decision_engine import TrafficDecisionEngine
 from src.communication.backend_client import BackendClient
 from src.analytics.signal_phase_manager import SignalPhaseManager
@@ -12,7 +13,7 @@ from src.analytics.signal_phase_manager import SignalPhaseManager
 # Video streaming imports
 from src.communication.video_stream import (
     publish_frames,
-    start_video_stream_server
+    start_video_stream_server,
 )
 
 
@@ -27,18 +28,7 @@ INTERSECTION_ID = "intersection_01"
 SEND_INTERVAL_SECONDS = 2.0
 
 
-def get_congestion_level(waiting_vehicles):
-
-    if waiting_vehicles >= 15:
-        return "high"
-
-    elif waiting_vehicles >= 7:
-        return "medium"
-
-    return "low"
-
-
-def build_analytics_payload(statistics, analyzer):
+def build_analytics_payload(statistics, analyzer, traffic_summary):
 
     approaches_data = {}
 
@@ -48,14 +38,14 @@ def build_analytics_payload(statistics, analyzer):
             approach, 0
         )
 
+        approach_summary = traffic_summary["approaches"][approach]
+
         approaches_data[approach] = {
             "total_vehicles": data["total"],
             "waiting_vehicles": data["waiting"],
             "moving_vehicles": data["moving"],
             "arrival_rate": arrival_rate,
-            "congestion_level": get_congestion_level(
-                data["waiting"]
-            )
+            "congestion_level": approach_summary["congestion_level"],
         }
 
     return {
@@ -63,13 +53,15 @@ def build_analytics_payload(statistics, analyzer):
         "timestamp": datetime.now(
             timezone.utc
         ).isoformat(),
-        "approaches": approaches_data
+        "approaches": approaches_data,
     }
 
 
 def main():
 
     analyzer = TrafficAnalyzer()
+    traffic_statistics = TrafficStatistics()
+
     decision_engine = TrafficDecisionEngine()
     backend_client = BackendClient()
 
@@ -84,6 +76,16 @@ def main():
         raise FileNotFoundError(
             "Could not open traffic video."
         )
+
+    fps = cap.get(cv2.CAP_PROP_FPS)
+
+    if fps <= 0:
+        cap.release()
+        raise ValueError("Invalid video FPS.")
+
+    frame_number = 0
+
+    print(f"Video FPS: {fps}")
 
     # Start the video streaming server.
     start_video_stream_server()
@@ -110,15 +112,25 @@ def main():
             if not success:
                 break
 
-            # Preserve the original frame before AI processing
-            # and drawing analytics overlays.
+            frame_number += 1
+
+            # Calculate timestamp using recorded video time.
+            video_timestamp = frame_number / fps
+
             original_frame = frame.copy()
 
-            # 1. Analyze actual video frame
-            statistics = analyzer.analyze(frame)
+            # 1. Analyze detected vehicles.
+            statistics = analyzer.analyze(
+                frame,
+                video_timestamp=video_timestamp,
+            )
 
-            # 2. Prepare input for the existing
-            # experimental Python decision engine.
+            # 2. Calculate traffic and congestion statistics.
+            traffic_summary = traffic_statistics.calculate(
+                statistics
+            )
+
+            # 3. Prepare input for the experimental decision engine.
             traffic_data = {}
 
             for approach, data in statistics.items():
@@ -130,12 +142,12 @@ def main():
                     )
                 }
 
-            # 3. Generate experimental traffic recommendation
+            # 4. Generate experimental traffic recommendation.
             decision = decision_engine.make_decision(
                 traffic_data
             )
 
-            # 4. Send actual analytics to Node.js periodically
+            # 5. Send analytics to Node.js periodically.
             current_time = time.monotonic()
 
             if (
@@ -145,7 +157,8 @@ def main():
 
                 payload = build_analytics_payload(
                     statistics,
-                    analyzer
+                    analyzer,
+                    traffic_summary,
                 )
 
                 response = backend_client.send_analytics(
@@ -159,7 +172,7 @@ def main():
 
                 last_sent_time = current_time
 
-            # 5. Display approach-wise statistics
+            # 6. Display overall traffic statistics.
             y = 30
 
             cv2.putText(
@@ -174,13 +187,52 @@ def main():
 
             y += 35
 
-            for approach, data in statistics.items():
+            overall_text = (
+                f"Total: {traffic_summary['total_vehicles']} "
+                f"Waiting: {traffic_summary['waiting_vehicles']} "
+                f"Moving: {traffic_summary['moving_vehicles']}"
+            )
+
+            cv2.putText(
+                frame,
+                overall_text,
+                (10, y),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.43,
+                (255, 255, 255),
+                1,
+            )
+
+            y += 25
+
+            congestion_text = (
+                f"Overall Congestion: "
+                f"{traffic_summary['congestion_level'].upper()} "
+                f"({traffic_summary['congestion_percentage']}%)"
+            )
+
+            cv2.putText(
+                frame,
+                congestion_text,
+                (10, y),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.43,
+                (0, 200, 255),
+                1,
+            )
+
+            y += 30
+
+            # 7. Display approach-wise statistics.
+            for approach, data in traffic_summary["approaches"].items():
 
                 text = (
                     f"{approach}: "
-                    f"Total={data['total']} "
-                    f"Waiting={data['waiting']} "
-                    f"Moving={data['moving']}"
+                    f"Total={data['total_vehicles']} "
+                    f"Waiting={data['waiting_vehicles']} "
+                    f"Moving={data['moving_vehicles']} "
+                    f"Congestion={data['congestion_level']} "
+                    f"({data['congestion_percentage']}%)"
                 )
 
                 cv2.putText(
@@ -188,14 +240,14 @@ def main():
                     text,
                     (10, y),
                     cv2.FONT_HERSHEY_SIMPLEX,
-                    0.42,
+                    0.35,
                     (255, 255, 255),
                     1,
                 )
 
-                y += 25
+                y += 24
 
-            # 6. Display experimental signal recommendation
+            # 8. Display experimental signal recommendation.
             if decision:
 
                 recommendation = (
@@ -212,7 +264,7 @@ def main():
                     recommendation,
                     (10, 390),
                     cv2.FONT_HERSHEY_SIMPLEX,
-                    0.65,
+                    0.55,
                     (0, 255, 0),
                     2,
                 )
@@ -222,20 +274,18 @@ def main():
                     green_time,
                     (10, 420),
                     cv2.FONT_HERSHEY_SIMPLEX,
-                    0.6,
+                    0.5,
                     (0, 255, 255),
                     2,
                 )
 
-            # 7. Publish both frames to FastAPI.
-            # Original frame has no AI overlays.
-            # Processed frame contains AI annotations.
+            # 9. Publish both frames to FastAPI.
             publish_frames(
                 original_frame,
                 frame
             )
 
-            # 8. Display the processed frame locally.
+            # 10. Display the processed frame locally.
             cv2.imshow("AI Traffic Manager", frame)
 
             if cv2.waitKey(1) & 0xFF == ord("q"):

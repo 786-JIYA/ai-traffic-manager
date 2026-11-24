@@ -1,38 +1,74 @@
+import { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
+import { Bell, Menu, Search } from "lucide-react";
 
-import { Bell, Search, Menu } from "lucide-react";
+import { NAV_ITEMS } from "./navigation";
 
+const useClock = () => {
+    const [now, setNow] = useState(() => new Date());
 
-const Topbar = () => {
+    useEffect(() => {
+        const timer = setInterval(() => setNow(new Date()), 1000);
+        return () => clearInterval(timer);
+    }, []);
+
+    return now;
+};
+
+const Topbar = ({ onOpenMenu, onOpenSearch }) => {
+    const { pathname } = useLocation();
+    const now = useClock();
+
+    const current = NAV_ITEMS.find((item) =>
+        item.path === "/" ? pathname === "/" : pathname.startsWith(item.path)
+    );
+
+    const isMac =
+        typeof navigator !== "undefined" && /mac/i.test(navigator.platform || "");
+
     return (
         <header className="topbar">
             <div className="topbar-left">
-                <button className="mobile-menu">
+                <button
+                    type="button"
+                    className="mobile-menu"
+                    onClick={onOpenMenu}
+                    aria-label="Open navigation"
+                >
                     <Menu size={21} />
                 </button>
 
                 <div>
-                    <p className="topbar-label">TRAFFIC CONTROL CENTER</p>
-                    <h2>Intelligent Traffic Overview</h2>
+                    <p className="topbar-label">Traffic control centre</p>
+                    <h2>{current?.title || "AI Traffic Manager"}</h2>
                 </div>
             </div>
 
             <div className="topbar-actions">
-                <div className="topbar-search">
-                    <Search size={17} />
-                    <span>Search...</span>
-                    <kbd>Ctrl K</kbd>
-                </div>
+                <time className="topbar-clock" dateTime={now.toISOString()}>
+                    {now.toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        second: "2-digit",
+                    })}
+                </time>
 
-                <button className="notification-button" aria-label="Notifications">
+                <button type="button" className="topbar-search" onClick={onOpenSearch}>
+                    <Search size={17} />
+                    <span>Go to page</span>
+                    <kbd>{isMac ? "⌘ K" : "Ctrl K"}</kbd>
+                </button>
+
+                <button type="button" className="notification-button" aria-label="Notifications">
                     <Bell size={20} />
-                    <span className="notification-dot"></span>
+                    <span className="notification-dot" />
                 </button>
 
                 <div className="user-profile">
                     <div className="user-avatar">A</div>
                     <div>
                         <strong>Administrator</strong>
-                        <small>Control Operator</small>
+                        <small>Control operator</small>
                     </div>
                 </div>
             </div>

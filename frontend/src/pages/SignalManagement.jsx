@@ -1,100 +1,51 @@
+import { useEffect, useMemo, useState } from "react";
+import { Play, Square } from "lucide-react";
 
-import { useEffect, useState } from "react";
 import api from "../services/api";
 import useSignalUpdates from "../hooks/useSignalUpdates";
+import useTrafficUpdates from "../hooks/useTrafficUpdates";
+import Intersection3D from "../components/three/Intersection3D";
+import { APPROACHES, indexByApproach, normalizeApproaches } from "../utils/traffic";
 
+const INTERSECTION = "intersection_01";
+const now = () => new Date().toISOString();
 
 const demoSamples = [
-    {
-        state: "ALL_RED",
-        active_phase: null,
-        green_duration: null,
-        elapsed_seconds: 2,
-        simulation_mode: true,
-        observed_at: new Date().toISOString(),
-    },
-    {
-        state: "GREEN",
-        active_phase: "bottom_left",
-        green_duration: 15,
-        elapsed_seconds: 5,
-        simulation_mode: true,
-        observed_at: new Date().toISOString(),
-    },
-    {
-        state: "YELLOW",
-        active_phase: "bottom_left",
-        green_duration: 15,
-        elapsed_seconds: 2,
-        simulation_mode: true,
-        observed_at: new Date().toISOString(),
-    },
-    {
-        state: "ALL_RED",
-        active_phase: null,
-        green_duration: null,
-        elapsed_seconds: 2,
-        simulation_mode: true,
-        observed_at: new Date().toISOString(),
-    },
-    {
-        state: "GREEN",
-        active_phase: "right_side",
-        green_duration: 20,
-        elapsed_seconds: 7,
-        simulation_mode: true,
-        observed_at: new Date().toISOString(),
-    },
-    {
-        state: "YELLOW",
-        active_phase: "right_side",
-        green_duration: 20,
-        elapsed_seconds: 2,
-        simulation_mode: true,
-        observed_at: new Date().toISOString(),
-    },
-    {
-        state: "ALL_RED",
-        active_phase: null,
-        green_duration: null,
-        elapsed_seconds: 2,
-        simulation_mode: true,
-        observed_at: new Date().toISOString(),
-    },
-    {
-        state: "GREEN",
-        active_phase: "top_center",
-        green_duration: 18,
-        elapsed_seconds: 6,
-        simulation_mode: true,
-        observed_at: new Date().toISOString(),
-    },
-    {
-        state: "YELLOW",
-        active_phase: "top_center",
-        green_duration: 18,
-        elapsed_seconds: 2,
-        simulation_mode: true,
-        observed_at: new Date().toISOString(),
-    },
-];
+    { state: "ALL_RED", active_phase: null, green_duration: null, elapsed_seconds: 2 },
+    { state: "GREEN", active_phase: "bottom_left", green_duration: 15, elapsed_seconds: 5 },
+    { state: "YELLOW", active_phase: "bottom_left", green_duration: 15, elapsed_seconds: 2 },
+    { state: "ALL_RED", active_phase: null, green_duration: null, elapsed_seconds: 2 },
+    { state: "GREEN", active_phase: "right_side", green_duration: 20, elapsed_seconds: 7 },
+    { state: "YELLOW", active_phase: "right_side", green_duration: 20, elapsed_seconds: 2 },
+    { state: "ALL_RED", active_phase: null, green_duration: null, elapsed_seconds: 2 },
+    { state: "GREEN", active_phase: "top_center", green_duration: 18, elapsed_seconds: 6 },
+    { state: "YELLOW", active_phase: "top_center", green_duration: 18, elapsed_seconds: 2 },
+].map((sample) => ({ ...sample, simulation_mode: true, observed_at: now() }));
 
+// Fixed queues so the 3D junction has something to show while the demo runs.
+const demoTraffic = {
+    bottom_left: { waiting_vehicles: 7, moving_vehicles: 3, congestion_level: "medium" },
+    top_center: { waiting_vehicles: 4, moving_vehicles: 4, congestion_level: "low" },
+    left_side: { waiting_vehicles: 9, moving_vehicles: 2, congestion_level: "medium" },
+    right_side: { waiting_vehicles: 10, moving_vehicles: 3, congestion_level: "high" },
+    bottom_right_slip: { waiting_vehicles: 3, moving_vehicles: 2, congestion_level: "low" },
+};
+
+const nameOf = (id) => APPROACHES.find((item) => item.id === id)?.name || "None";
+const prettyState = (state) => String(state || "UNKNOWN").replace(/_/g, " ").toLowerCase();
 
 function SignalManagement() {
     const [history, setHistory] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
 
-
     const [demoMode, setDemoMode] = useState(false);
     const [demoIndex, setDemoIndex] = useState(0);
 
+    const [initialTraffic, setInitialTraffic] = useState([]);
 
-    const {
-        signalData,
-        setSignalData,
-        setLastUpdated,
-    } = useSignalUpdates();
+    const { signalData, setSignalData, setLastUpdated } = useSignalUpdates(INTERSECTION);
+    const { trafficData: liveTraffic } = useTrafficUpdates(INTERSECTION);
 
     useEffect(() => {
         const loadSignalData = async () => {
@@ -102,10 +53,15 @@ function SignalManagement() {
                 setLoading(true);
                 setError("");
 
-                const [latestResponse, historyResponse] = await Promise.all([
+                const [latestResponse, historyResponse, trafficResponse] = await Promise.all([
                     api.getLatestSignalState(),
                     api.getSignalHistory(),
+                    api.getLatestTraffic().catch(() => null),
                 ]);
+
+                if (trafficResponse?.data) {
+                    setInitialTraffic(normalizeApproaches(trafficResponse.data));
+                }
 
                 if (latestResponse.success && latestResponse.data) {
                     setSignalData(latestResponse.data);
@@ -125,228 +81,155 @@ function SignalManagement() {
         loadSignalData();
     }, [setSignalData, setLastUpdated]);
 
-
     useEffect(() => {
-        if (!demoMode) return;
+        if (!demoMode) return undefined;
 
         const interval = setInterval(() => {
-            setDemoIndex((previousIndex) =>
-                (previousIndex + 1) % demoSamples.length
-            );
+            setDemoIndex((previous) => (previous + 1) % demoSamples.length);
         }, 2500);
 
         return () => clearInterval(interval);
     }, [demoMode]);
 
+    const displayed = demoMode ? demoSamples[demoIndex] : signalData;
+    const currentState = displayed?.state || "UNKNOWN";
+    const stateClass = currentState.toLowerCase().replace(/_/g, "-");
 
-    const displayedSignalData = demoMode
-        ? demoSamples[demoIndex]
-        : signalData;
+    const liveTrafficMap = useMemo(() => {
+        const live = normalizeApproaches(liveTraffic);
+        return indexByApproach(live.length ? live : initialTraffic);
+    }, [liveTraffic, initialTraffic]);
 
+    const sceneTraffic = demoMode ? demoTraffic : liveTrafficMap;
 
-    const currentState = displayedSignalData?.state || "UNKNOWN";
-
-    const stateClass = currentState.toLowerCase().replace("_", "-");
+    const toggleDemo = () => {
+        setDemoIndex(0);
+        setDemoMode((value) => !value);
+    };
 
     if (loading) {
-        return <div className="signal-page-message">Loading signal information...</div>;
+        return <div className="page"><div className="notice">Loading signal information…</div></div>;
     }
 
+    const details = [
+        { label: "Active approach", value: nameOf(displayed?.active_phase) },
+        {
+            label: "Green duration",
+            value: displayed?.green_duration != null ? `${displayed.green_duration} s` : "N/A",
+        },
+        {
+            label: "Elapsed time",
+            value: displayed?.elapsed_seconds != null
+                ? `${Number(displayed.elapsed_seconds).toFixed(1)} s`
+                : "N/A",
+        },
+        {
+            label: "Last observed",
+            value: displayed?.observed_at
+                ? new Date(displayed.observed_at).toLocaleTimeString()
+                : "N/A",
+        },
+    ];
+
     return (
-        <div className="signal-management-page">
-            <div className="signal-page-header">
+        <div className="page signal-management-page">
+            <header className="page-head">
                 <div>
-                    <h1>Signal Management</h1>
-                    <p>Monitor simulated traffic signal states and transitions.</p>
+                    <h1>Signal management</h1>
+                    <p>Follow simulated signal states and transitions at the junction.</p>
                 </div>
 
-
-                <div className="signal-header-actions">
-                    <span className="simulation-badge">
-                        {demoMode ? "DEMO MODE" : "LIVE SIMULATION"}
+                <div className="head-actions">
+                    <span className={`mode-badge ${demoMode ? "demo" : ""}`}>
+                        {demoMode ? "Demo mode" : "Live simulation"}
                     </span>
 
                     <button
-                        className={`demo-button ${demoMode ? "stop-demo" : ""}`}
-                        onClick={() => {
-                            if (demoMode) {
-                                setDemoMode(false);
-                                setDemoIndex(0);
-                            } else {
-                                setDemoIndex(0);
-                                setDemoMode(true);
-                            }
-                        }}
+                        type="button"
+                        className={`btn ${demoMode ? "btn-stop" : "btn-primary"}`}
+                        onClick={toggleDemo}
                     >
-                        {demoMode ? "■ Stop Demo" : "▶ Start Demo"}
+                        {demoMode ? <Square size={15} /> : <Play size={15} />}
+                        {demoMode ? "Stop demo" : "Start demo"}
                     </button>
                 </div>
+            </header>
 
-            </div>
+            {error && <div className="notice notice-error" role="alert">{error}</div>}
 
-            {error && (
-                <div className="signal-error">
-                    {error}
-                </div>
-            )}
-
-            <section className="signal-current-card">
-                <div className="signal-card-heading">
-                    <div>
-                        <h2>Current Signal State</h2>
-                        <p>Intersection: intersection_01</p>
-                    </div>
-
-                    <span className={`signal-state-badge ${stateClass}`}>
-                        {currentState.replace("_", " ")}
-                    </span>
-                </div>
-
-
-                <div className="traffic-signal-visual">
-                    <div className="traffic-signal-housing">
-                        <div className={`traffic-light red-light ${currentState === "ALL_RED" ? "active" : ""}`}>
-                            <span />
-                        </div>
-
-                        <div className={`traffic-light yellow-light ${currentState === "YELLOW" ? "active" : ""}`}>
-                            <span />
-                        </div>
-
-                        <div className={`traffic-light green-light ${currentState === "GREEN" ? "active" : ""}`}>
-                            <span />
+            <section className="signal-layout">
+                <div className="panel signal-state-panel">
+                    <div className="panel-head">
+                        <div>
+                            <h2>Current signal state</h2>
+                            <p>Intersection: {INTERSECTION}</p>
                         </div>
                     </div>
 
-                    <div className="traffic-signal-pole" />
-
-                    <p className="traffic-signal-caption">
-                        LIVE SIMULATED SIGNAL
-                    </p>
-                </div>
-
-
-                <section className="intersection-panel">
-                    <div className="intersection-panel-heading">
-                        <h3>Intersection Overview</h3>
-                        <span>5 APPROACHES</span>
+                    <div className={`signal-state-badge ${stateClass}`}>
+                        {prettyState(currentState)}
                     </div>
 
-                    <div className="intersection-road-layout">
-                        {[
-                            { id: "top_center", label: "Top Center", position: "top" },
-                            { id: "bottom_left", label: "Bottom Left", position: "bottom-left" },
-                            { id: "left_side", label: "Left Side", position: "left" },
-                            { id: "right_side", label: "Right Side", position: "right" },
-                            { id: "bottom_right_slip", label: "Bottom Right Slip", position: "bottom-right" },
-                        ].map((approach) => {
-                            const isActive =
-                                displayedSignalData?.state === "GREEN" &&
-                                displayedSignalData?.active_phase === approach.id
+                    <div className="traffic-signal-visual">
+                        <div className="traffic-signal-housing" role="img" aria-label={`Signal is ${prettyState(currentState)}`}>
+                            <div className={`traffic-light red-light ${currentState === "ALL_RED" ? "active" : ""}`}><span /></div>
+                            <div className={`traffic-light yellow-light ${currentState === "YELLOW" ? "active" : ""}`}><span /></div>
+                            <div className={`traffic-light green-light ${currentState === "GREEN" ? "active" : ""}`}><span /></div>
+                        </div>
+                        <div className="traffic-signal-pole" />
+                    </div>
 
-                            return (
-                                <div
-                                    key={approach.id}
-                                    className={`approach-node ${approach.position} ${isActive ? "active" : ""}`}
-                                >
-                                    <span className="approach-indicator" />
-                                    <strong>{approach.label}</strong>
-                                    <small>{isActive ? "GREEN ACTIVE" : "NOT ACTIVE"}</small>
-                                </div>
-                            );
-                        })}
-
-
-                        {demoMode && (
-                            <div className="demo-vehicle-layer">
-                                <span className="demo-car car-horizontal">🚗</span>
-                                <span className="demo-car car-vertical">🚙</span>
-                                <span className="demo-car car-diagonal">🚕</span>
-                                <span className="demo-car car-reverse">🚗</span>
+                    <dl className="signal-details">
+                        {details.map(({ label, value }) => (
+                            <div className="signal-detail" key={label}>
+                                <dt>{label}</dt>
+                                <dd>{value}</dd>
                             </div>
-                        )}
+                        ))}
+                    </dl>
+                </div>
 
-
-                        <div className="intersection-center">
-                            <div className="intersection-center-lines">
-                                <span />
-                                <span />
-                                <span />
-                            </div>
-                            <strong>INTERSECTION</strong>
-                            <small>SIMULATION</small>
+                <div className="panel panel-flush">
+                    <div className="panel-head panel-head-pad">
+                        <div>
+                            <h2>Intersection overview</h2>
+                            <p>
+                                {demoMode
+                                    ? "Demo running: the phase changes every 2.5 seconds."
+                                    : "The glowing lane has the green. Others are held at the stop line."}
+                            </p>
                         </div>
-                    </div>
-                </section>
-
-
-
-                <div className="signal-details-grid">
-                    <div className="signal-detail">
-                        <span>Active Approach</span>
-                        <strong>
-                            {signalData?.active_phase || "None"}
-                        </strong>
+                        <span className="count-pill">{APPROACHES.length} approaches</span>
                     </div>
 
-                    <div className="signal-detail">
-                        <span>Green Duration</span>
-                        <strong>
-                            {signalData?.green_duration != null
-                                ? `${signalData.green_duration} sec`
-                                : "N/A"}
-                        </strong>
-                    </div>
-
-                    <div className="signal-detail">
-                        <span>Elapsed Time</span>
-                        <strong>
-                            {signalData?.elapsed_seconds != null
-                                ? `${Number(signalData.elapsed_seconds).toFixed(1)} sec`
-                                : "N/A"}
-                        </strong>
-                    </div>
-
-                    <div className="signal-detail">
-                        <span>Last Observed</span>
-                        <strong>
-                            {signalData?.observed_at
-                                ? new Date(signalData.observed_at).toLocaleTimeString()
-                                : "N/A"}
-                        </strong>
-                    </div>
+                    <Intersection3D traffic={sceneTraffic} signal={displayed} height={560} />
                 </div>
             </section>
 
-            <section className="signal-history-section">
-                <div className="signal-section-heading">
-                    <h2>Signal Transition History</h2>
-                    <span>{history.length} records</span>
+            <section className="panel">
+                <div className="panel-head">
+                    <div>
+                        <h2>Signal transition history</h2>
+                        <p>Most recent changes first</p>
+                    </div>
+                    <span className="count-pill">{history.length} records</span>
                 </div>
 
                 {history.length === 0 ? (
-                    <p className="signal-empty">
-                        No signal transition history available yet.
-                    </p>
+                    <p className="table-empty">No signal transitions recorded yet.</p>
                 ) : (
-                    <div className="signal-history-list">
+                    <ol className="history-list">
                         {history.map((item) => (
-                            <div className="signal-history-item" key={item.id}>
+                            <li className="history-item" key={item.id}>
+                                <span className={`history-dot ${String(item.state).toLowerCase().replace(/_/g, "-")}`} />
                                 <div>
-                                    <strong>
-                                        {item.state.replace("_", " ")}
-                                    </strong>
-                                    <p>
-                                        Approach: {item.active_phase || "None"}
-                                    </p>
+                                    <strong>{prettyState(item.state)}</strong>
+                                    <p>Approach: {nameOf(item.active_phase)}</p>
                                 </div>
-
-                                <span>
-                                    {new Date(item.observed_at).toLocaleString()}
-                                </span>
-                            </div>
+                                <time>{new Date(item.observed_at).toLocaleString()}</time>
+                            </li>
                         ))}
-                    </div>
+                    </ol>
                 )}
             </section>
         </div>

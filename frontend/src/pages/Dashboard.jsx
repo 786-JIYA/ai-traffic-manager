@@ -1,40 +1,22 @@
-
-import { useEffect, useState } from "react";
-
-import {
-    Activity,
-    CarFront,
-    Clock3,
-    Gauge,
-    Radio,
-    ArrowUpRight,
-} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Activity, CarFront, Clock3, Gauge } from "lucide-react";
 
 import api from "../services/api";
 import useTrafficUpdates from "../hooks/useTrafficUpdates";
+import useSignalUpdates from "../hooks/useSignalUpdates";
+import Intersection3D from "../components/three/Intersection3D";
+import ApproachRow from "../components/dashboard/ApproachRow";
+import {
+    APPROACHES,
+    formatClock,
+    indexByApproach,
+    levelFromWaiting,
+    normalizeApproaches,
+    percentOf,
+    sumBy,
+} from "../utils/traffic";
 
-const approaches = [
-    { id: "bottom_left", name: "Bottom Left", direction: "Approach 01" },
-    { id: "top_center", name: "Top Center", direction: "Approach 02" },
-    { id: "left_side", name: "Left Side", direction: "Approach 03" },
-    { id: "right_side", name: "Right Side", direction: "Approach 04" },
-    { id: "bottom_right_slip", name: "Bottom Right Slip", direction: "Approach 05" },
-];
-
-const normalizeApproaches = (value) => {
-    if (Array.isArray(value)) {
-        return value;
-    }
-
-    if (value && typeof value === "object") {
-        return Object.entries(value).map(([approach, metrics]) => ({
-            approach,
-            ...metrics,
-        }));
-    }
-
-    return [];
-};
+const INTERSECTION = "intersection_01";
 
 const Dashboard = () => {
     const [initialData, setInitialData] = useState([]);
@@ -45,259 +27,188 @@ const Dashboard = () => {
         trafficData: liveTrafficData,
         lastUpdated,
         isConnected,
-    } = useTrafficUpdates("intersection_01");
+    } = useTrafficUpdates(INTERSECTION);
+
+    const { signalData, setSignalData } = useSignalUpdates(INTERSECTION);
 
     useEffect(() => {
         let cancelled = false;
 
-        const fetchLatestTraffic = async () => {
+        const load = async () => {
             try {
-                const response = await api.getLatestTraffic("intersection_01");
+                const [traffic, signal] = await Promise.all([
+                    api.getLatestTraffic(INTERSECTION),
+                    api.getLatestSignalState(INTERSECTION).catch(() => null),
+                ]);
 
-                if (!cancelled) {
-                    setInitialData(normalizeApproaches(response.data));
-                    setApiError("");
-                }
+                if (cancelled) return;
+
+                setInitialData(normalizeApproaches(traffic.data));
+                if (signal?.success && signal.data) setSignalData(signal.data);
+                setApiError("");
             } catch (error) {
-                if (!cancelled) {
-                    setApiError(error.message);
-                }
+                if (!cancelled) setApiError(error.message);
             } finally {
-                if (!cancelled) {
-                    setLoading(false);
-                }
+                if (!cancelled) setLoading(false);
             }
         };
 
-        fetchLatestTraffic();
+        load();
 
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [setSignalData]);
 
-    const trafficRows = normalizeApproaches(
-        liveTrafficData ?? initialData
-    );
+    const rows = useMemo(() => {
+        const live = normalizeApproaches(liveTrafficData);
+        return live.length ? live : initialData;
+    }, [liveTrafficData, initialData]);
 
-    const trafficByApproach = Object.fromEntries(
-        trafficRows.map((item) => [item.approach, item])
-    );
+    const trafficByApproach = useMemo(() => indexByApproach(rows), [rows]);
 
-    const totalVehicles = trafficRows.reduce(
-        (sum, item) => sum + Number(item.total_vehicles || 0),
-        0
-    );
+    const hasData = rows.length > 0;
+    const totalVehicles = sumBy(rows, "total_vehicles");
+    const totalWaiting = sumBy(rows, "waiting_vehicles");
+    const totalMoving = sumBy(rows, "moving_vehicles");
+    const averageWaiting = hasData ? (totalWaiting / rows.length).toFixed(1) : "—";
+    const congestion = percentOf(totalWaiting, totalVehicles);
+    const congestionLevel = levelFromWaiting(totalWaiting);
 
-    const totalWaiting = trafficRows.reduce(
-        (sum, item) => sum + Number(item.waiting_vehicles || 0),
-        0
-    );
+    const show = (value) => (loading ? "…" : hasData ? value : "—");
 
-    const totalMoving = trafficRows.reduce(
-        (sum, item) => sum + Number(item.moving_vehicles || 0),
-        0
-    );
+    const kpis = [
+        { label: "Vehicles in view", value: show(totalVehicles), note: "Across all approaches", icon: CarFront },
+        { label: "Moving", value: show(totalMoving), note: "Currently in motion", icon: Activity },
+        { label: "Average waiting", value: show(averageWaiting), note: "Vehicles per approach", icon: Clock3 },
+        {
+            label: "Congestion",
+            value: show(`${congestion}%`),
+            note: hasData ? `${congestionLevel} overall` : "Waiting for traffic data",
+            icon: Gauge,
+            tone: hasData ? congestionLevel : undefined,
+        },
+    ];
 
-    const averageWaiting = trafficRows.length
-        ? (totalWaiting / trafficRows.length).toFixed(1)
-        : "—";
-
-    const formatTime = (timestamp) => {
-        if (!timestamp) return "Waiting for traffic updates";
-
-        return new Date(timestamp).toLocaleTimeString();
-    };
+    const snapshotTime = lastUpdated || rows[0]?.observed_at;
 
     return (
-        <div className="dashboard">
-
-            <div className="dashboard-heading">
+        <div className="page dashboard">
+            <header className="page-head">
                 <div>
-                    <p className="section-eyebrow">INTERSECTION OVERVIEW</p>
-                    <h1>Traffic Dashboard</h1>
-                    <p className="dashboard-description">
-                        Monitor traffic conditions and intelligent signal operations.
-                    </p>
+                    <h1>Traffic dashboard</h1>
+                    <p>Queues, signal phase and a live 3D model of the junction.</p>
                 </div>
 
-                <div className="live-indicator">
-                    <span className="live-dot"></span>
-                    {isConnected ? "LIVE CONNECTED" : "LIVE DISCONNECTED"}
+                <div className={`live-badge ${isConnected ? "connected" : ""}`}>
+                    <span className="live-dot" />
+                    {isConnected ? "Live updates connected" : "Live updates disconnected"}
                 </div>
-            </div>
+            </header>
 
             {apiError && (
-                <div className="dashboard-error">
+                <div className="notice notice-error" role="alert">
                     Unable to load traffic data: {apiError}
                 </div>
             )}
 
-            <div className="stats-grid">
-
-                <div className="stat-card">
-                    <div className="stat-icon teal">
-                        <CarFront size={22} />
+            <section className="kpi-strip" aria-label="Traffic summary">
+                {kpis.map(({ label, value, note, icon: Icon, tone }) => (
+                    <div className="kpi" key={label} data-tone={tone}>
+                        <div className="kpi-label">
+                            <Icon size={17} />
+                            {label}
+                        </div>
+                        <strong className="kpi-value">{value}</strong>
+                        <span className="kpi-note">{note}</span>
                     </div>
-                    <p>Total Vehicles</p>
-                    <h2>{loading ? "..." : trafficRows.length ? totalVehicles : "—"}</h2>
-                    <span>Across all approaches</span>
-                </div>
+                ))}
+            </section>
 
-                <div className="stat-card">
-                    <div className="stat-icon blue">
-                        <Activity size={22} />
-                    </div>
-                    <p>Moving Vehicles</p>
-                    <h2>{loading ? "..." : trafficRows.length ? totalMoving : "—"}</h2>
-                    <span>Currently moving</span>
-                </div>
-
-                <div className="stat-card">
-                    <div className="stat-icon amber">
-                        <Clock3 size={22} />
-                    </div>
-                    <p>Average Waiting</p>
-                    <h2>{loading ? "..." : averageWaiting}</h2>
-                    <span>Vehicles per approach</span>
-                </div>
-
-                <div className="stat-card">
-                    <div className="stat-icon purple">
-                        <Gauge size={22} />
-                    </div>
-                    <p>Signal Status</p>
-                    <h2>—</h2>
-                    <span>Signal state not connected</span>
-                </div>
-
-            </div>
-
-            <div className="dashboard-section">
-
-                <div className="section-heading">
-                    <div>
-                        <h2>Intersection Approaches</h2>
-                        <p>Live traffic conditions across five approaches</p>
-                    </div>
-                    <span className="section-count">05 APPROACHES</span>
-                </div>
-
-                <div className="approach-grid">
-
-                    {approaches.map((approach) => {
-                        const data = trafficByApproach[approach.id];
-
-                        return (
-                            <div className="approach-card" key={approach.id}>
-
-                                <div className="approach-card-top">
-                                    <div className="approach-icon">
-                                        <Radio size={20} />
-                                    </div>
-
-                                    <span className="approach-status">
-                                        <span className="status-dot"></span>
-                                        {data?.congestion_level || "No data"}
-                                    </span>
-                                </div>
-
-                                <p className="approach-label">
-                                    {approach.direction}
-                                </p>
-
-                                <h3>{approach.name}</h3>
-
-                                <div className="approach-metrics">
-                                    <div>
-                                        <span>Total</span>
-                                        <strong>{data ? data.total_vehicles : "—"}</strong>
-                                    </div>
-
-                                    <div>
-                                        <span>Waiting</span>
-                                        <strong>{data ? data.waiting_vehicles : "—"}</strong>
-                                    </div>
-
-                                    <div>
-                                        <span>Moving</span>
-                                        <strong>{data ? data.moving_vehicles : "—"}</strong>
-                                    </div>
-                                </div>
-
-                                <div className="approach-footer">
-                                    <span>
-                                        Arrival rate: {data ? data.arrival_rate : "—"}
-                                    </span>
-                                    <ArrowUpRight size={16} />
-                                </div>
-
-                            </div>
-                        );
-                    })}
-
-                </div>
-            </div>
-
-            <div className="dashboard-bottom">
-
-                <div className="activity-panel">
-                    <div className="section-heading">
+            <section className="dash-main">
+                <div className="panel panel-flush">
+                    <div className="panel-head panel-head-pad">
                         <div>
-                            <h2>Traffic Activity</h2>
-                            <p>Latest traffic snapshot</p>
+                            <h2>Junction model</h2>
+                            <p>Drag to rotate and scroll to zoom. Signals and queues follow live data.</p>
+                        </div>
+                    </div>
+                    <Intersection3D traffic={trafficByApproach} signal={signalData} className="stage-fill" />
+                </div>
+
+                <div className="panel approach-panel">
+                    <div className="panel-head">
+                        <div>
+                            <h2>Approaches</h2>
+                            <p>Each block is one vehicle</p>
+                        </div>
+                        <span className="count-pill">{APPROACHES.length} lanes</span>
+                    </div>
+
+                    <ul className="approach-list">
+                        {APPROACHES.map((approach) => (
+                            <ApproachRow
+                                key={approach.id}
+                                approach={approach}
+                                data={trafficByApproach[approach.id]}
+                            />
+                        ))}
+                    </ul>
+                </div>
+            </section>
+
+            <section className="dash-bottom">
+                <div className="panel">
+                    <div className="panel-head">
+                        <div>
+                            <h2>Latest snapshot</h2>
+                            <p>What the detection engine last reported</p>
                         </div>
                     </div>
 
                     <div className="empty-state">
                         <Activity size={28} />
                         <strong>
-                            {trafficRows.length
-                                ? `${totalVehicles} vehicles detected`
-                                : "No traffic data available"}
+                            {hasData ? `${totalVehicles} vehicles detected` : "No traffic data yet"}
                         </strong>
                         <span>
-                            {lastUpdated
-                                ? `Last live update: ${formatTime(lastUpdated)}`
-                                : trafficRows.length
-                                    ? `Latest database record: ${formatTime(trafficRows[0]?.observed_at)}`
-                                    : "Waiting for traffic data"}
+                            {snapshotTime
+                                ? `${lastUpdated ? "Last live update" : "Latest stored record"}: ${formatClock(snapshotTime)}`
+                                : "Start the detection engine to see vehicles here."}
                         </span>
                     </div>
                 </div>
 
-                <div className="system-panel">
-                    <div className="section-heading">
+                <div className="panel">
+                    <div className="panel-head">
                         <div>
-                            <h2>System Health</h2>
+                            <h2>System health</h2>
                             <p>Connected services</p>
                         </div>
                     </div>
 
                     <div className="service-row">
-                        <span>AI Detection Engine</span>
-                        <span className="service-pending">
-                            {trafficRows.length ? "Data received" : "No data"}
+                        <span>AI detection engine</span>
+                        <span className={hasData ? "service-online" : "service-pending"}>
+                            {hasData ? "Data received" : "No data"}
                         </span>
                     </div>
 
                     <div className="service-row">
                         <span>Backend API</span>
-                        <span className={apiError ? "service-pending" : "service-online"}>
-                            {loading ? "Checking..." : apiError ? "Unavailable" : "Connected"}
+                        <span className={apiError ? "service-down" : loading ? "service-pending" : "service-online"}>
+                            {loading ? "Checking…" : apiError ? "Unavailable" : "Connected"}
                         </span>
                     </div>
 
                     <div className="service-row">
-                        <span>Live Updates</span>
+                        <span>Live updates</span>
                         <span className={isConnected ? "service-online" : "service-pending"}>
                             {isConnected ? "Connected" : "Disconnected"}
                         </span>
                     </div>
                 </div>
-
-            </div>
-
+            </section>
         </div>
     );
 };

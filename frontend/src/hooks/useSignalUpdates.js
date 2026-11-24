@@ -1,6 +1,5 @@
-
 import { useEffect, useState } from "react";
-import socket from "../services/socket";
+import socket, { connectSocket, disconnectSocket } from "../services/socket";
 
 export default function useSignalUpdates(intersectionId = "intersection_01") {
     const [signalData, setSignalData] = useState(null);
@@ -15,9 +14,11 @@ export default function useSignalUpdates(intersectionId = "intersection_01") {
         };
 
         socket.on("signal:update", handleSignalUpdate);
+        connectSocket();
 
         return () => {
             socket.off("signal:update", handleSignalUpdate);
+            disconnectSocket();
         };
     }, [intersectionId]);
 

@@ -1,4 +1,43 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap');
+
+/* =========================================
+   DESIGN TOKENS
+   Palette comes from the street: asphalt blues, signal colours
+   for status only, and road-marking yellow as the single accent.
+========================================= */
+:root {
+  --bg: #0f1b2a;
+  --bg-deep: #0b1521;
+  --panel: #15263a;
+  --panel-2: #1a2f46;
+  --line: #29415c;
+  --line-soft: #1f354d;
+
+  --text: #eaf1f8;
+  --muted: #94abc4;
+  --faint: #7189a3;
+
+  --accent: #35d0c0;
+  --accent-ink: #052421;
+  --paint: #f2c14e;
+
+  --go: #3ddc97;
+  --caution: #ffb224;
+  --stop: #ff5a52;
+  --info: #5aa9ff;
+
+  --font-display: 'Barlow Condensed', 'Arial Narrow', sans-serif;
+  --font-body: 'Barlow', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 18px;
+
+  --sidebar-w: 252px;
+  --topbar-h: 76px;
+
+  color-scheme: dark;
+}
 
 * {
   margin: 0;
@@ -13,41 +52,64 @@ body,
   min-height: 100%;
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 body {
-  font-family: 'Inter', sans-serif;
-  background: #0b1424;
-  color: #f1f5f9;
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.45;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  line-height: 1.1;
 }
 
 button,
 input {
   font: inherit;
+  color: inherit;
 }
 
-.app-layout {
-  display: flex;
-  width: 100%;
-  min-height: 100vh;
-  overflow: hidden;
+button {
+  cursor: pointer;
 }
 
-.main-container {
-  flex: 1;
-  min-width: 0;
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  background: #0b1424;
+a {
+  color: inherit;
 }
 
-.main-content {
-  flex: 1;
-  min-width: 0;
-  padding: 30px;
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
-@media (max-width: 650px) {
-  .main-content {
-    padding: 18px;
+::selection {
+  background: rgba(53, 208, 192, 0.3);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
